@@ -1,0 +1,33 @@
+name: MetalCityscape
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    macOS: "12.0"
+  developmentLanguage: en
+
+targets:
+  MetalCityscape:
+    type: application
+    platform: macOS
+    sources:
+      - Sources
+      - Shaders
+    resources:
+      - Resources/uploads_files_2720101_BusGameMap.obj
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.example.MetalCityscape
+      SWIFT_VERSION: 5.0
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      ENABLE_HARDENED_RUNTIME: YES
+      CODE_SIGN_STYLE: Automatic
+      INFOPLIST_FILE: Resources/Info.plist
+
+schemes:
+  MetalCityscape:
+    build:
+      targets:
+        MetalCityscape: all
+    run:
+      config: Debug
+    archive:
+      config: Release

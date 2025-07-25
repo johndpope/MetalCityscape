@@ -14,12 +14,20 @@ struct Uniforms {
     var projectionMatrix: matrix_float4x4
 }
 
+struct UniformsWithColor {
+    var modelMatrix: matrix_float4x4
+    var viewMatrix: matrix_float4x4
+    var projectionMatrix: matrix_float4x4
+    var color: SIMD4<Float>
+}
+
 struct CameraFrustum {
     var position: SIMD3<Float>
     var rotation: SIMD3<Float>
     var size: Float
     var photoTexture: MTLTexture?
     var boundingSphere: BoundingSphere
+    var isHovered: Bool = false
 }
 
 struct BoundingSphere {
@@ -53,6 +61,7 @@ class Renderer: NSObject, MTKViewDelegate {
     let device: MTLDevice
     let commandQueue: MTLCommandQueue
     var wireframePipelineState: MTLRenderPipelineState!
+    var coloredWireframePipelineState: MTLRenderPipelineState!
     var texturePipelineState: MTLRenderPipelineState!
     var depthStencilState: MTLDepthStencilState!
     
@@ -72,8 +81,15 @@ class Renderer: NSObject, MTKViewDelegate {
     var zoomProgress: Float = 0
     var isZooming = false
     
+    var hoveredFrustumIndex: Int? = nil
+    var lastMousePosition: CGPoint = .zero
+    var time: Float = 0
+    
     init?(metalKitView: MTKView) {
-        guard let device = MTLCreateSystemDefaultDevice() else { return nil }
+        guard let device = MTLCreateSystemDefaultDevice() else { 
+            print("❌ Failed to create Metal device")
+            return nil 
+        }
         self.device = device
         self.commandQueue = device.makeCommandQueue()!
         self.textureLoader = MTKTextureLoader(device: device)
@@ -86,11 +102,15 @@ class Renderer: NSObject, MTKViewDelegate {
         
         metalKitView.delegate = self
         
+        print("✅ Metal device created: \(device.name)")
+        
         setupPipelines()
         setupDepthStencilState()
         loadCityModel()
         setupScene()
         loadTextures()
+        
+        print("✅ Renderer initialized with \(cameraFrustums.count) photo frustums")
     }
     
     func setupPipelines() {
@@ -132,7 +152,19 @@ class Renderer: NSObject, MTKViewDelegate {
         texturePipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
         texturePipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
         
+        // Create colored wireframe pipeline for hover highlighting
+        let coloredWireframeVertexFunction = library.makeFunction(name: "coloredWireframeVertexShader")!
+        let coloredWireframeFragmentFunction = library.makeFunction(name: "coloredWireframeFragmentShader")!
+        
+        let coloredWireframePipelineDescriptor = MTLRenderPipelineDescriptor()
+        coloredWireframePipelineDescriptor.vertexFunction = coloredWireframeVertexFunction
+        coloredWireframePipelineDescriptor.fragmentFunction = coloredWireframeFragmentFunction
+        coloredWireframePipelineDescriptor.vertexDescriptor = vertexDescriptor
+        coloredWireframePipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+        coloredWireframePipelineDescriptor.depthAttachmentPixelFormat = .depth32Float
+        
         wireframePipelineState = try! device.makeRenderPipelineState(descriptor: wireframePipelineDescriptor)
+        coloredWireframePipelineState = try! device.makeRenderPipelineState(descriptor: coloredWireframePipelineDescriptor)
         texturePipelineState = try! device.makeRenderPipelineState(descriptor: texturePipelineDescriptor)
     }
     
@@ -265,6 +297,9 @@ class Renderer: NSObject, MTKViewDelegate {
         
         renderEncoder.setDepthStencilState(depthStencilState)
         
+        // Update time for animation effects
+        time += 1.0/60.0 // Assuming 60 FPS
+        
         updateCamera()
         
         let aspect = Float(view.drawableSize.width / view.drawableSize.height)
@@ -317,8 +352,7 @@ class Renderer: NSObject, MTKViewDelegate {
             renderEncoder.drawIndexedPrimitives(type: .triangle, indexCount: 6, indexType: .uint16, indexBuffer: photoQuadIndexBuffer, indexBufferOffset: 0)
         }
         
-        // Render photo borders (wireframe)
-        renderEncoder.setRenderPipelineState(wireframePipelineState)
+        // Render photo borders with hover highlighting
         renderEncoder.setVertexBuffer(photoBorderVertexBuffer, offset: 0, index: 0)
         
         for frustum in cameraFrustums {
@@ -330,8 +364,23 @@ class Renderer: NSObject, MTKViewDelegate {
                               rotationMatrix *
                               matrix4x4_scale(frustum.size, frustum.size, frustum.size)
             
-            var uniforms = Uniforms(modelMatrix: modelMatrix, viewMatrix: viewMatrix, projectionMatrix: projectionMatrix)
-            renderEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 1)
+            if frustum.isHovered {
+                // Use colored wireframe shader for hovered frustum with bright orange/yellow color
+                renderEncoder.setRenderPipelineState(coloredWireframePipelineState)
+                var coloredUniforms = UniformsWithColor(
+                    modelMatrix: modelMatrix,
+                    viewMatrix: viewMatrix,
+                    projectionMatrix: projectionMatrix,
+                    color: SIMD4<Float>(1.0, 0.6, 0.0, time) // Bright orange with time for pulsing
+                )
+                renderEncoder.setVertexBytes(&coloredUniforms, length: MemoryLayout<UniformsWithColor>.stride, index: 1)
+            } else {
+                // Use normal wireframe shader for non-hovered frustums
+                renderEncoder.setRenderPipelineState(wireframePipelineState)
+                var uniforms = Uniforms(modelMatrix: modelMatrix, viewMatrix: viewMatrix, projectionMatrix: projectionMatrix)
+                renderEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 1)
+            }
+            
             renderEncoder.drawIndexedPrimitives(type: .line, indexCount: 8, indexType: .uint16, indexBuffer: photoBorderIndexBuffer, indexBufferOffset: 0)
         }
         
@@ -342,7 +391,7 @@ class Renderer: NSObject, MTKViewDelegate {
     
     func updateCamera() {
         if isZooming, let target = zoomTarget, let start = zoomStart {
-            zoomProgress += 0.02
+            zoomProgress += 0.03 // Slightly faster zoom
             if zoomProgress >= 1 {
                 zoomProgress = 1
                 isZooming = false
@@ -350,7 +399,60 @@ class Renderer: NSObject, MTKViewDelegate {
             
             let t = smoothstep(0, 1, zoomProgress)
             camera.position = mix(start, target, t: t)
-            camera.target = mix(camera.target, target - [0, 0, 2], t: t)
+            
+            // Look towards the frustum position during zoom
+            if let hoveredIndex = hoveredFrustumIndex {
+                let frustumPos = cameraFrustums[hoveredIndex].position
+                camera.target = mix(camera.target, frustumPos, t: t)
+            }
+        }
+    }
+    
+    func handleMouseMove(at location: CGPoint, viewSize: CGSize) {
+        lastMousePosition = location
+        
+        let aspect = Float(viewSize.width / viewSize.height)
+        let projMatrix = camera.projectionMatrix(aspect: aspect)
+        let viewMatrix = camera.viewMatrix()
+        
+        let ndcX = (2 * Float(location.x) / Float(viewSize.width)) - 1
+        let ndcY = 1 - (2 * Float(location.y) / Float(viewSize.height))
+        
+        let clipCoords = SIMD4<Float>(ndcX, ndcY, -1, 1)
+        let invProjMatrix = projMatrix.inverse
+        var eyeCoords = invProjMatrix * clipCoords
+        eyeCoords.z = -1
+        eyeCoords.w = 0
+        
+        let invViewMatrix = viewMatrix.inverse
+        let worldDir4 = invViewMatrix * eyeCoords
+        let worldDir = normalize(SIMD3<Float>(worldDir4.x, worldDir4.y, worldDir4.z))
+        let worldOrigin4 = invViewMatrix * SIMD4<Float>(0, 0, 0, 1)
+        let worldOrigin = SIMD3<Float>(worldOrigin4.x, worldOrigin4.y, worldOrigin4.z)
+        
+        let ray = Ray(origin: worldOrigin, direction: worldDir)
+        
+        // Clear previous hover state
+        for i in 0..<cameraFrustums.count {
+            cameraFrustums[i].isHovered = false
+        }
+        hoveredFrustumIndex = nil
+        
+        // Find the closest intersected frustum for hover
+        var closestDistance: Float = .infinity
+        
+        for (index, frustum) in cameraFrustums.enumerated() {
+            if let t = intersectRaySphere(ray: ray, sphere: frustum.boundingSphere) {
+                if t < closestDistance {
+                    closestDistance = t
+                    hoveredFrustumIndex = index
+                }
+            }
+        }
+        
+        // Set hover state for the closest frustum
+        if let hoveredIndex = hoveredFrustumIndex {
+            cameraFrustums[hoveredIndex].isHovered = true
         }
     }
     
@@ -389,10 +491,16 @@ class Renderer: NSObject, MTKViewDelegate {
         }
         
         if let frustum = closestFrustum {
+            // Enhanced zoom behavior: position camera to get a good view of the frustum
+            let toFrustum = normalize(frustum.position - camera.position)
+            let optimalDistance: Float = 6.0 // Slightly closer for better view
+            
             zoomStart = camera.position
-            zoomTarget = frustum.position + normalize(camera.position - frustum.position) * 4
+            zoomTarget = frustum.position - toFrustum * optimalDistance
             zoomProgress = 0
             isZooming = true
+            
+            print("Zooming to frustum at position: \(frustum.position)")
         }
     }
     

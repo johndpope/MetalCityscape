@@ -6,6 +6,11 @@ class ViewController: NSViewController {
     var renderer: Renderer!
     var mtkView: MTKView!
     
+    override func loadView() {
+        // Create a basic view - will be replaced with MTKView by AppDelegate
+        view = NSView()
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -29,5 +34,17 @@ class ViewController: NSViewController {
         let location = view.convert(event.locationInWindow, from: nil)
         let viewSize = view.bounds.size
         renderer.handleClick(at: location, viewSize: viewSize)
+    }
+    
+    override func mouseMoved(with event: NSEvent) {
+        let location = view.convert(event.locationInWindow, from: nil)
+        let viewSize = view.bounds.size
+        renderer.handleMouseMove(at: location, viewSize: viewSize)
+    }
+    
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        // Enable mouse move tracking
+        view.window?.acceptsMouseMovedEvents = true
     }
 }

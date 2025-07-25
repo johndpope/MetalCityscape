@@ -18,6 +18,13 @@ struct Uniforms {
     float4x4 projectionMatrix;
 };
 
+struct UniformsWithColor {
+    float4x4 modelMatrix;
+    float4x4 viewMatrix;
+    float4x4 projectionMatrix;
+    float4 color;
+};
+
 vertex VertexOut wireframeVertexShader(VertexIn in [[stage_in]],
                                        constant Uniforms &uniforms [[buffer(1)]]) {
     VertexOut out;
@@ -33,6 +40,29 @@ fragment float4 wireframeFragmentShader(VertexOut in [[stage_in]]) {
     float distance = length(in.worldPos);
     float fade = 1.0 - smoothstep(10.0, 50.0, distance);
     return float4(wireframeColor * fade, 1.0);
+}
+
+vertex VertexOut coloredWireframeVertexShader(VertexIn in [[stage_in]],
+                                              constant UniformsWithColor &uniforms [[buffer(1)]]) {
+    VertexOut out;
+    float4 worldPos = uniforms.modelMatrix * float4(in.position, 1.0);
+    out.worldPos = worldPos.xyz;
+    out.position = uniforms.projectionMatrix * uniforms.viewMatrix * worldPos;
+    out.texCoord = in.texCoord;
+    return out;
+}
+
+fragment float4 coloredWireframeFragmentShader(VertexOut in [[stage_in]],
+                                               constant UniformsWithColor &uniforms [[buffer(1)]]) {
+    float distance = length(in.worldPos);
+    float fade = 1.0 - smoothstep(10.0, 50.0, distance);
+    
+    // Add pulsing effect for hovered items
+    float time = uniforms.color.w; // Use alpha channel for time
+    float pulse = 0.5 + 0.5 * sin(time * 4.0);
+    float intensity = 0.7 + 0.3 * pulse;
+    
+    return float4(uniforms.color.rgb * fade * intensity, 1.0);
 }
 
 vertex VertexOut textureVertexShader(VertexIn in [[stage_in]],

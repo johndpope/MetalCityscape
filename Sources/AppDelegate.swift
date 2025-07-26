@@ -47,6 +47,8 @@ class ClickableMetalView: MTKView {
             testFrustumClick()
         case 19: // 2 key - debug frustums
             renderer?.debugListFrustums()
+        case 20: // 3 key - reset viewport
+            renderer?.resetViewport()
         default:
             super.keyDown(with: event)
         }

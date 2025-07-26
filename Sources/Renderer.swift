@@ -52,7 +52,7 @@ struct Camera {
     var target: SIMD3<Float> = [0, 0, 0]
     var up: SIMD3<Float> = [0, 1, 0]
     var fov: Float = 60 * .pi / 180
-    var near: Float = 0.1
+    var near: Float = 0.01
     var far: Float = 1000
     
     func viewMatrix() -> matrix_float4x4 {
@@ -588,6 +588,10 @@ class Renderer: NSObject, MTKViewDelegate {
         
         print("🔍 Testing intersection with \(cameraFrustums.count) frustums")
         for (index, frustum) in cameraFrustums.enumerated() {
+            if index == viewportFrustumIndex && !isFlyingTo {
+                print("🚫 Skipping hidden viewport frustum \(index) for hover check")
+                continue
+            }
             let sphere = frustum.boundingSphere
             
             // Project frustum center to screen coordinates to see where it should appear
@@ -685,6 +689,12 @@ class Renderer: NSObject, MTKViewDelegate {
         var closestDistance: Float = .infinity
         
         for frustum in cameraFrustums {
+                let index = cameraFrustums.firstIndex(where: { $0.position == frustum.position })!
+                if index == viewportFrustumIndex && !isFlyingTo {
+                    print("🚫 Skipping hidden viewport frustum \(index) for click check")
+                    continue
+                }
+            
             if let t = intersectRaySphere(ray: ray, sphere: frustum.boundingSphere) {
                 if t < closestDistance {
                     closestDistance = t

@@ -261,14 +261,14 @@ class Renderer: NSObject, MTKViewDelegate {
         createPhotoQuadGeometry()
         createPhotoBorderGeometry()
         
-        // Create 15 camera frustums with random positions
+        // Create 15 camera frustums with random positions but aligned horizontally
         for i in 0..<15 {
             let x = Float.random(in: -20...20)
             let z = Float.random(in: -20...20)
             let y = Float.random(in: 2...8)
-            let rotX = Float.random(in: -0.3...0.3)
-            let rotY = Float.random(in: 0...2 * .pi)
-            let rotZ = Float.random(in: -0.2...0.2)
+            let rotX: Float = 0  // No pitch rotation - keep horizontal
+            let rotY = Float.random(in: 0...2 * .pi)  // Only yaw rotation for direction
+            let rotZ: Float = 0  // No roll rotation - keep level
             
             let frustum = CameraFrustum(
                 position: [x, y, z],
@@ -480,6 +480,19 @@ class Renderer: NSObject, MTKViewDelegate {
         }
     }
     
+    func resetViewport() {
+        print("🔄 Resetting viewport - showing all frustums")
+        viewportFrustumIndex = nil
+//        viewportFrustumAlpha = 1.0
+        
+        // Reset camera to overview position
+        camera.position = SIMD3<Float>(0, 10, 15)
+//        camera.rotation = SIMD3<Float>(0, 0, 0) // Look straight ahead
+        
+        // Stop any ongoing fly-to animation
+        isFlyingTo = false
+    }
+    
     func handleMouseMove(at location: CGPoint, viewSize: CGSize) {
         lastMousePosition = location
         print("🖱️ Mouse moved to: \(location) in view size: \(viewSize)")
@@ -664,24 +677,28 @@ class Renderer: NSObject, MTKViewDelegate {
         }
         print("🎯 Frustum center: \(frustumCenter)")
         
-        // Calculate the frustum's normal vector (pointing towards camera)
-        let edge1 = worldCorners[1] - worldCorners[0] // bottom edge (right - left)
-        let edge2 = worldCorners[3] - worldCorners[0] // left edge (top - bottom)
-        let normal = normalize(cross(edge1, edge2))
+        // For horizontally aligned frustums, calculate the normal from the frustum's yaw rotation
+        // The frustum faces in its local -Z direction, so we need to rotate that by the yaw
+        let frustumYaw = frustum.rotation.y
+        let normal = SIMD3<Float>(
+            -sin(frustumYaw),  // X component (negative because frustum faces -Z)
+            0,                 // No Y component - keep level  
+            -cos(frustumYaw)   // Z component (negative because frustum faces -Z)
+        )
         
-        // Calculate actual frustum dimensions correctly
-        // Corners: 0=bottom-left, 1=bottom-right, 2=top-right, 3=top-left
-        let frustumWidth = length(worldCorners[1] - worldCorners[0])   // bottom edge (right - left)
-        let frustumHeight = length(worldCorners[3] - worldCorners[0])  // left edge (top - bottom)
+        // For horizontally aligned frustums, we can calculate dimensions more directly
+        // Using the local frustum coordinates scaled by the frustum size
+        let frustumWidth = 1.7 * frustum.size   // Local width is 2 * 0.85 = 1.7
+        let frustumHeight = 1.3 * frustum.size  // Local height is 2 * 0.65 = 1.3
         
         // Get actual viewport aspect ratio
         let viewportAspect = Float(viewportSize.width / viewportSize.height)
         
-        // Use camera's actual FOV (45 degrees)
-        let fov: Float = 45.0 * .pi / 180.0
+        // Use camera's actual FOV (60 degrees)
+        let fov: Float = 60.0 * .pi / 180.0
         
         // Calculate required distances
-        // Vertical FOV is 45 degrees, calculate horizontal FOV from aspect ratio
+        // Vertical FOV is 60 degrees, calculate horizontal FOV from aspect ratio
         let verticalFOV = fov
         let horizontalFOV = 2.0 * atan(tan(verticalFOV / 2.0) * viewportAspect)
         

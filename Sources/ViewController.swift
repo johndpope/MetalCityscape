@@ -33,19 +33,46 @@ class ViewController: NSViewController {
     override func mouseDown(with event: NSEvent) {
         let location = view.convert(event.locationInWindow, from: nil)
         let viewSize = view.bounds.size
-        renderer.handleClick(at: location, viewSize: viewSize)
+        print("🖱️ ViewController mouseDown called: \(location) in \(viewSize)")
+        renderer?.handleClick(at: location, viewSize: viewSize)
     }
     
     override func mouseMoved(with event: NSEvent) {
         let location = view.convert(event.locationInWindow, from: nil)
         let viewSize = view.bounds.size
         print("🎯 ViewController mouseMoved called: \(location) in \(viewSize)")
-        renderer.handleMouseMove(at: location, viewSize: viewSize)
+        renderer?.handleMouseMove(at: location, viewSize: viewSize)
     }
     
     override func viewDidAppear() {
         super.viewDidAppear()
         // Enable mouse move tracking
         view.window?.acceptsMouseMovedEvents = true
+        
+        // Make this view the first responder to receive mouse events
+        view.window?.makeFirstResponder(self)
+        
+        print("✅ ViewController: View appeared, mouse tracking enabled")
+    }
+    
+    override var acceptsFirstResponder: Bool {
+        return true
+    }
+    
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 123: // Left arrow
+            renderer?.navigateToPreviousFrustum()
+        case 124: // Right arrow
+            renderer?.navigateToNextFrustum()
+        case 125: // Down arrow
+            renderer?.navigateToNextFrustum()
+        case 126: // Up arrow
+            renderer?.navigateToPreviousFrustum()
+        case 49: // Spacebar
+            renderer?.takeScreenshot()
+        default:
+            super.keyDown(with: event)
+        }
     }
 }

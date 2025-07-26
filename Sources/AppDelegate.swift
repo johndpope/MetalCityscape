@@ -1,14 +1,26 @@
 import Cocoa
 import MetalKit
 
-// Custom MTKView that handles mouse clicks
+// Custom MTKView that handles mouse clicks and movements
 class ClickableMetalView: MTKView {
     var renderer: Renderer?
     
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         let viewSize = bounds.size
+        print("🖱️ ClickableMetalView mouseDown: \(location) in \(viewSize)")
         renderer?.handleClick(at: location, viewSize: viewSize)
+    }
+    
+    override func mouseMoved(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        let viewSize = bounds.size
+        print("🎯 ClickableMetalView mouseMoved: \(location) in \(viewSize)")
+        renderer?.handleMouseMove(at: location, viewSize: viewSize)
+    }
+    
+    override var acceptsFirstResponder: Bool {
+        return true
     }
 }
 
@@ -48,6 +60,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Set the Metal view as content view
         window.contentView = metalView
+        
+        // Enable mouse move tracking
+        window.acceptsMouseMovedEvents = true
         
         // Make the window key and order front
         window.makeKeyAndOrderFront(nil)

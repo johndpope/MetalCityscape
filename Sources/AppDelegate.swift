@@ -5,6 +5,36 @@ import MetalKit
 class ClickableMetalView: MTKView {
     var renderer: Renderer?
     
+     override func updateTrackingAreas() {
+         super.updateTrackingAreas()
+         // Remove old areas to avoid stale rects
+         for area in trackingAreas {
+             removeTrackingArea(area)
+         }
+         let newArea = NSTrackingArea(
+             rect: bounds,
+             options: [.activeInKeyWindow, .mouseMoved, .enabledDuringMouseDrag],
+             owner: self,
+             userInfo: nil
+         )
+         addTrackingArea(newArea)
+         print("✅ Updated tracking area to rect: \(bounds)")
+     }
+    
+    override func mouseMoved(with event: NSEvent) {
+      print("🖱️ Raw event.locationInWindow: \(event.locationInWindow)")
+      let location = convert(event.locationInWindow, from: nil)
+      print("🖱️ Converted location: \(location)")
+      print("📏 View bounds: \(bounds)")
+      let viewSize = bounds.size
+      if !bounds.contains(location) {
+          print("⚠️ Mouse outside view bounds - ignoring")
+          return
+      }
+      print("🎯 ClickableMetalView mouseMoved: \(location) in \(viewSize)")
+         renderer?.handleMouseMove(at: location, viewSize: viewSize)
+    }
+    
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         let viewSize = bounds.size
@@ -29,12 +59,12 @@ class ClickableMetalView: MTKView {
         renderer?.handleMouseUp()
     }
     
-    override func mouseMoved(with event: NSEvent) {
-        let location = convert(event.locationInWindow, from: nil)
-        let viewSize = bounds.size
-        print("🎯 ClickableMetalView mouseMoved: \(location) in \(viewSize)")
-        renderer?.handleMouseMove(at: location, viewSize: viewSize)
-    }
+//    override func mouseMoved(with event: NSEvent) {
+//        let location = convert(event.locationInWindow, from: nil)
+//        let viewSize = bounds.size
+//        print("🎯 ClickableMetalView mouseMoved: \(location) in \(viewSize)")
+//        renderer?.handleMouseMove(at: location, viewSize: viewSize)
+//    }
     
     override var acceptsFirstResponder: Bool {
         return true
@@ -127,13 +157,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         metalView.window?.acceptsMouseMovedEvents = true
         
         // Create a tracking area for the entire view to capture mouse moves
-        let trackingArea = NSTrackingArea(
-            rect: metalView.bounds,
-            options: [.activeInKeyWindow, .mouseMoved, .enabledDuringMouseDrag],
-            owner: metalView,
-            userInfo: nil
-        )
-        metalView.addTrackingArea(trackingArea)
+//        let trackingArea = NSTrackingArea(
+//            rect: metalView.bounds,
+//            options: [.activeInKeyWindow, .mouseMoved, .enabledDuringMouseDrag],
+//            owner: metalView,
+//            userInfo: nil
+//        )
+//        metalView.addTrackingArea(trackingArea)
         
         // Make the window key and order front
         window.makeKeyAndOrderFront(nil)

@@ -1,3 +1,323 @@
+import Cocoa
+import MetalKit
+
+class ViewController: NSViewController {
+    
+    var renderer: Renderer!
+    var mtkView: MTKView!
+    
+    override func loadView() {
+        // Create a basic view - will be replaced with MTKView by AppDelegate
+        view = NSView()
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        guard let mtkView = self.view as? MTKView else {
+            print("View attached to ViewController is not an MTKView")
+            return
+        }
+        
+        self.mtkView = mtkView
+        
+        guard let renderer = Renderer(metalKitView: mtkView) else {
+            print("Renderer cannot be initialized")
+            return
+        }
+        
+        self.renderer = renderer
+        mtkView.preferredFramesPerSecond = 60
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        let location = view.convert(event.locationInWindow, from: nil)
+        let viewSize = view.bounds.size
+        print("🖱️ ViewController mouseDown called: \(location) in \(viewSize)")
+        renderer?.handleClick(at: location, viewSize: viewSize)
+    }
+    
+    override func mouseMoved(with event: NSEvent) {
+        let location = view.convert(event.locationInWindow, from: nil)
+        let viewSize = view.bounds.size
+        print("🎯 ViewController mouseMoved called: \(location) in \(viewSize)")
+        renderer?.handleMouseMove(at: location, viewSize: viewSize)
+    }
+    
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        // Enable mouse move tracking
+        view.window?.acceptsMouseMovedEvents = true
+        
+        // Make this view the first responder to receive mouse events
+        view.window?.makeFirstResponder(self)
+        
+        print("✅ ViewController: View appeared, mouse tracking enabled")
+    }
+    
+    override var acceptsFirstResponder: Bool {
+        return true
+    }
+    
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 123: // Left arrow
+            renderer?.navigateToPreviousFrustum()
+        case 124: // Right arrow
+            renderer?.navigateToNextFrustum()
+        case 125: // Down arrow
+            renderer?.navigateToNextFrustum()
+        case 126: // Up arrow
+            renderer?.navigateToPreviousFrustum()
+        case 49: // Spacebar
+            renderer?.takeScreenshot()
+        case 50: // ` key - test click simulation
+            testClickSimulation()
+        case 18: // 1 key - test first frustum
+            testFrustumClick()
+        case 19: // 2 key - debug frustums
+            renderer?.debugListFrustums()
+        default:
+            super.keyDown(with: event)
+        }
+    }
+    
+    func testClickSimulation() {
+        print("🧪 Testing click simulation at center of screen")
+        let viewSize = view.bounds.size
+        let centerPoint = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        print("🎯 Simulating click at: \(centerPoint) in view size: \(viewSize)")
+        renderer?.handleClick(at: centerPoint, viewSize: viewSize)
+    }
+    
+    func testFrustumClick() {
+        print("🧪 Testing direct frustum navigation")
+        renderer?.flyToFrustum(at: 0) // Go to first frustum
+    }
+}
+import simd
+
+func matrix4x4_translation(_ x: Float, _ y: Float, _ z: Float) -> matrix_float4x4 {
+    var matrix = matrix_identity_float4x4
+    matrix.columns.3 = SIMD4<Float>(x, y, z, 1)
+    return matrix
+}
+
+func matrix4x4_scale(_ sx: Float, _ sy: Float, _ sz: Float) -> matrix_float4x4 {
+    var matrix = matrix_identity_float4x4
+    matrix.columns.0.x = sx
+    matrix.columns.1.y = sy
+    matrix.columns.2.z = sz
+    return matrix
+}
+
+func matrix4x4_rotation(radians: Float, axis: SIMD3<Float>) -> matrix_float4x4 {
+    let unitAxis = normalize(axis)
+    let ct = cosf(radians)
+    let st = sinf(radians)
+    let ci = 1 - ct
+    let x = unitAxis.x, y = unitAxis.y, z = unitAxis.z
+    
+    var matrix = matrix_identity_float4x4
+    
+    matrix.columns.0 = SIMD4<Float>(ct + x * x * ci, y * x * ci + z * st, z * x * ci - y * st, 0)
+    matrix.columns.1 = SIMD4<Float>(x * y * ci - z * st, ct + y * y * ci, z * y * ci + x * st, 0)
+    matrix.columns.2 = SIMD4<Float>(x * z * ci + y * st, y * z * ci - x * st, ct + z * z * ci, 0)
+    matrix.columns.3 = SIMD4<Float>(0, 0, 0, 1)
+    
+    return matrix
+}
+
+func matrix_perspective_left_hand(fovyRadians fovy: Float, aspectRatio: Float, nearZ: Float, farZ: Float) -> matrix_float4x4 {
+    let ys = 1 / tanf(fovy * 0.5)
+    let xs = ys / aspectRatio
+    let zs = farZ / (farZ - nearZ)
+    
+    var matrix = matrix_float4x4()
+    matrix.columns.0 = SIMD4<Float>(xs, 0, 0, 0)
+    matrix.columns.1 = SIMD4<Float>(0, ys, 0, 0)
+    matrix.columns.2 = SIMD4<Float>(0, 0, zs, 1)
+    matrix.columns.3 = SIMD4<Float>(0, 0, -nearZ * zs, 0)
+    
+    return matrix
+}
+
+func matrix_look_at_left_hand(eye: SIMD3<Float>, target: SIMD3<Float>, up: SIMD3<Float>) -> matrix_float4x4 {
+    let z = normalize(target - eye)
+    let x = normalize(cross(up, z))
+    let y = cross(z, x)
+    
+    var matrix = matrix_identity_float4x4
+    matrix.columns.0 = SIMD4<Float>(x.x, y.x, z.x, 0)
+    matrix.columns.1 = SIMD4<Float>(x.y, y.y, z.y, 0)
+    matrix.columns.2 = SIMD4<Float>(x.z, y.z, z.z, 0)
+    matrix.columns.3 = SIMD4<Float>(-dot(x, eye), -dot(y, eye), -dot(z, eye), 1)
+    
+    return matrix
+}
+import Cocoa
+import MetalKit
+
+// Custom MTKView that handles mouse clicks and movements
+class ClickableMetalView: MTKView {
+    var renderer: Renderer?
+    
+    override func mouseDown(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        let viewSize = bounds.size
+        print("🖱️ ClickableMetalView mouseDown: \(location) in \(viewSize)")
+        
+        // Check if shift key is held for camera control
+        if event.modifierFlags.contains(.shift) {
+            renderer?.handleMouseDown(at: location)
+        } else {
+            renderer?.handleClick(at: location, viewSize: viewSize)
+        }
+    }
+    
+    override func mouseDragged(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        print("🎯 ClickableMetalView mouseDragged: \(location)")
+        renderer?.handleMouseDragged(at: location)
+    }
+    
+    override func mouseUp(with event: NSEvent) {
+        print("🖱️ ClickableMetalView mouseUp")
+        renderer?.handleMouseUp()
+    }
+    
+    override func mouseMoved(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        let viewSize = bounds.size
+        print("🎯 ClickableMetalView mouseMoved: \(location) in \(viewSize)")
+        renderer?.handleMouseMove(at: location, viewSize: viewSize)
+    }
+    
+    override var acceptsFirstResponder: Bool {
+        return true
+    }
+    
+    override var canBecomeKeyView: Bool {
+        return true
+    }
+    
+    override func keyDown(with event: NSEvent) {
+        print("🎹 ClickableMetalView keyDown: keyCode=\(event.keyCode)")
+        
+        switch event.keyCode {
+        case 123: // Left arrow
+            renderer?.navigateToPreviousFrustum()
+        case 124: // Right arrow
+            renderer?.navigateToNextFrustum()
+        case 125: // Down arrow
+            renderer?.navigateToNextFrustum()
+        case 126: // Up arrow
+            renderer?.navigateToPreviousFrustum()
+        case 49: // Spacebar
+            renderer?.takeScreenshot()
+        case 50: // ` key - test click simulation
+            testClickSimulation()
+        case 18: // 1 key - test first frustum
+            testFrustumClick()
+        case 19: // 2 key - debug frustums
+            renderer?.debugListFrustums()
+        case 20: // 3 key - reset viewport
+            renderer?.resetViewport()
+        default:
+            super.keyDown(with: event)
+        }
+    }
+    
+    func testClickSimulation() {
+        print("🧪 Testing click simulation at center of screen")
+        let viewSize = bounds.size
+        let centerPoint = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        print("🎯 Simulating click at: \(centerPoint) in view size: \(viewSize)")
+        renderer?.handleClick(at: centerPoint, viewSize: viewSize)
+    }
+    
+    func testFrustumClick() {
+        print("🧪 Testing direct frustum navigation")
+        renderer?.flyToFrustum(at: 0) // Go to first frustum
+    }
+}
+
+@main
+class AppDelegate: NSObject, NSApplicationDelegate {
+    
+    var window: NSWindow!
+    var renderer: Renderer!
+    
+    func applicationDidFinishLaunching(_ aNotification: Notification) {
+        // Create the window programmatically
+        let windowStyle: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1024, height: 768),
+            styleMask: windowStyle,
+            backing: .buffered,
+            defer: false
+        )
+        
+        // Center the window on screen
+        window.center()
+        
+        // Set the title
+        window.title = "Metal Cityscape"
+        
+        // Create Metal view that fills the window
+        let metalView = ClickableMetalView(frame: window.contentLayoutRect)
+        
+        // Initialize renderer with the Metal view
+        guard let renderer = Renderer(metalKitView: metalView) else {
+            print("❌ Failed to initialize renderer")
+            NSApp.terminate(nil)
+            return
+        }
+        self.renderer = renderer
+        metalView.renderer = renderer  // Connect for mouse handling
+        
+        // Set the Metal view as content view
+        window.contentView = metalView
+        
+        // Enable mouse move tracking
+        window.acceptsMouseMovedEvents = true
+        metalView.window?.acceptsMouseMovedEvents = true
+        
+        // Create a tracking area for the entire view to capture mouse moves
+        let trackingArea = NSTrackingArea(
+            rect: metalView.bounds,
+            options: [.activeInKeyWindow, .mouseMoved, .enabledDuringMouseDrag],
+            owner: metalView,
+            userInfo: nil
+        )
+        metalView.addTrackingArea(trackingArea)
+        
+        // Make the window key and order front
+        window.makeKeyAndOrderFront(nil)
+        
+        // Make the metal view the first responder to receive keyboard events
+        window.makeFirstResponder(metalView)
+        
+        print("✅ Metal Cityscape window created and displayed")
+        print("📊 Window size: \(window.frame.size)")
+        print("📊 MetalView size: \(metalView.bounds.size)")
+        print("📊 Number of frustums: \(renderer.cameraFrustums.count)")
+        print("🎹 First responder: \(window.firstResponder)")
+        print("🎹 Metal view accepts first responder: \(metalView.acceptsFirstResponder)")
+    }
+    
+    func applicationWillTerminate(_ aNotification: Notification) {
+        // Insert code here to tear down your application
+    }
+    
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        return true
+    }
+    
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return true
+    }
+}
 import Metal
 import MetalKit
 import ModelIO
@@ -275,30 +595,19 @@ class Renderer: NSObject, MTKViewDelegate {
             let rotX: Float = 0  // No pitch rotation - keep horizontal
             let rotY = Float.random(in: 0...2 * .pi)  // Only yaw rotation for direction
             let rotZ: Float = 0  // No roll rotation - keep level
-            let size = Float.random(in: 1.2...2.0)
             
-           // Compute accurate bounding sphere centered on the quad (offset in local -Z)
-           let rotationMatrix = matrix4x4_rotation(radians: rotY, axis: [0, 1, 0])
-           let localOffset = SIMD3<Float>(0, 0, -1.8)  // Quad center in local space
-           let scaledOffset = localOffset * size
-           let rotatedOffset4 = rotationMatrix * SIMD4<Float>(scaledOffset.x, scaledOffset.y, scaledOffset.z, 0)
-           let rotatedOffset = SIMD3<Float>(rotatedOffset4.x, rotatedOffset4.y, rotatedOffset4.z)
-           let sphereCenter = SIMD3<Float>(x, y, z) + rotatedOffset
-           let sphereRadius = size * 1.1  // Tight radius with slight padding for easier hover
-            
-    
-           let frustum = CameraFrustum(
-               position: [x, y, z],
-               rotation: [rotX, rotY, rotZ],
-               size: size,
-               photoTexture: nil,
-               boundingSphere: BoundingSphere(center: sphereCenter, radius: sphereRadius)
-           )
-            
+            let frustum = CameraFrustum(
+                position: [x, y, z],
+                rotation: [rotX, rotY, rotZ],
+                size: Float.random(in: 1.2...2.0),
+                photoTexture: nil,
+                boundingSphere: BoundingSphere(center: [x, y, z], radius: 5.0) // Increased radius for easier picking
+            )
             cameraFrustums.append(frustum)
-            print("📦 Created frustum \(i): position=\(frustum.position), sphere center=\(frustum.boundingSphere.center), radius=\(frustum.boundingSphere.radius)")
+            print("📦 Created frustum \(i): position=\(frustum.position), radius=\(frustum.boundingSphere.radius)")
         }
     }
+    
     func createPhotoQuadGeometry() {
         let photoVertices: [Vertex] = [
             Vertex(position: [-0.8, -0.6, -1.8], texCoord: [0, 1]),
@@ -414,14 +723,10 @@ class Renderer: NSObject, MTKViewDelegate {
         }
         
         // Render photo quads (textured with transparency)
-        // Render photo quads (textured with transparency)
         renderEncoder.setRenderPipelineState(transparentTexturePipelineState)
         renderEncoder.setVertexBuffer(photoQuadVertexBuffer, offset: 0, index: 0)
         
-        for (index, frustum) in cameraFrustums.enumerated() {
-            if let v = viewportFrustumIndex, index == v && !isFlyingTo {
-                       continue  // Hide current frustum when arrived (Photosynth-like immersion)
-                   }
+        for frustum in cameraFrustums {
             let rotationMatrix = matrix4x4_rotation(radians: frustum.rotation.y, axis: [0, 1, 0]) *
                                  matrix4x4_rotation(radians: frustum.rotation.x, axis: [1, 0, 0]) *
                                  matrix4x4_rotation(radians: frustum.rotation.z, axis: [0, 0, 1])
@@ -429,13 +734,12 @@ class Renderer: NSObject, MTKViewDelegate {
             let modelMatrix = matrix4x4_translation(frustum.position.x, frustum.position.y, frustum.position.z) *
                               rotationMatrix *
                               matrix4x4_scale(frustum.size, frustum.size, frustum.size)
-            let alpha: Float = frustum.isHovered ? 0.6 : 0.3  // Higher opacity on hover
             
             var uniformsWithAlpha = UniformsWithAlpha(
                 modelMatrix: modelMatrix, 
                 viewMatrix: viewMatrix, 
                 projectionMatrix: projectionMatrix,
-                alpha: alpha // 30% opacity for transparency
+                alpha: 0.3 // 30% opacity for transparency
             )
             renderEncoder.setVertexBytes(&uniformsWithAlpha, length: MemoryLayout<UniformsWithAlpha>.stride, index: 1)
             renderEncoder.setFragmentBytes(&uniformsWithAlpha, length: MemoryLayout<UniformsWithAlpha>.stride, index: 1)
@@ -444,14 +748,11 @@ class Renderer: NSObject, MTKViewDelegate {
                 renderEncoder.setFragmentTexture(texture, index: 0)
             }
             
-           
-            
             renderEncoder.drawIndexedPrimitives(type: .triangle, indexCount: 6, indexType: .uint16, indexBuffer: photoQuadIndexBuffer, indexBufferOffset: 0)
         }
         
         // Render photo borders with hover highlighting
         renderEncoder.setVertexBuffer(photoBorderVertexBuffer, offset: 0, index: 0)
-        
         
         let hoveredCount = cameraFrustums.filter { $0.isHovered }.count
         if hoveredCount > 0 {
@@ -459,9 +760,6 @@ class Renderer: NSObject, MTKViewDelegate {
         }
         
         for (index, frustum) in cameraFrustums.enumerated() {
-            if let v = viewportFrustumIndex, index == v && !isFlyingTo {
-                       continue  // Hide border too
-                   }
             let rotationMatrix = matrix4x4_rotation(radians: frustum.rotation.y, axis: [0, 1, 0]) *
                                  matrix4x4_rotation(radians: frustum.rotation.x, axis: [1, 0, 0]) *
                                  matrix4x4_rotation(radians: frustum.rotation.z, axis: [0, 0, 1])
@@ -536,30 +834,26 @@ class Renderer: NSObject, MTKViewDelegate {
     }
     
     func handleMouseMove(at location: CGPoint, viewSize: CGSize) {
-        
-        
+        lastMousePosition = location
         print("🖱️ Mouse moved to: \(location) in view size: \(viewSize)")
-            
-            let aspect = Float(viewSize.width / viewSize.height)
-            let projMatrix = camera.projectionMatrix(aspect: aspect)
-            let viewMatrix = camera.viewMatrix()
-            
-           let ndcX = (2 * Float(location.x) / Float(viewSize.width)) - 1
-           let ndcY = (2 * Float(location.y) / Float(viewSize.height)) - 1  // Correct: bottom -1, top +1
-            
         
-       if ndcX < -1 || ndcX > 1 || ndcY < -1 || ndcY > 1 {
-           print("⚠️ NDC outside frustum (-1 to 1): (\(ndcX), \(ndcY)) - mouse likely off-screen")
-       }
+        let aspect = Float(viewSize.width / viewSize.height)
+        let projMatrix = camera.projectionMatrix(aspect: aspect)
+        let viewMatrix = camera.viewMatrix()
         
-        let clipCoords = SIMD4<Float>(ndcX, ndcY, -1, 1)
+        // Test different coordinate systems
+        let ndcX = (2 * Float(location.x) / Float(viewSize.width)) - 1
+        let ndcY = (2 * Float(location.y) / Float(viewSize.height)) - 1
+        let ndcY_flipped = 1 - (2 * Float(location.y) / Float(viewSize.height))
         
         print("📍 NDC - Current: (\(ndcX), \(ndcY))")
-
-
+        print("📍 NDC - Flipped: (\(ndcX), \(ndcY_flipped))")
+        print("📍 Screen percentage: x=\(Float(location.x)/Float(viewSize.width)*100)%, y=\(Float(location.y)/Float(viewSize.height)*100)%")
+        
+        let clipCoords = SIMD4<Float>(ndcX, ndcY_flipped, -1, 1)
         let invProjMatrix = projMatrix.inverse
         var eyeCoords = invProjMatrix * clipCoords
-        eyeCoords.z = 1
+        eyeCoords.z = -1
         eyeCoords.w = 0
         
         print("🔍 Eye coords: \(eyeCoords)")
@@ -574,7 +868,7 @@ class Renderer: NSObject, MTKViewDelegate {
         let ray = Ray(origin: worldOrigin, direction: worldDir)
         print("🔦 Ray: origin=\(worldOrigin), direction=\(worldDir)")
         print("📷 Camera: pos=\(camera.position), target=\(camera.target)")
-        print("🔦 Ray direction.z: \(ray.direction.z) (should be negative for forward in world space)")
+        
         // Clear previous hover state
         let previousHoveredIndex = hoveredFrustumIndex
         for i in 0..<cameraFrustums.count {
@@ -598,11 +892,6 @@ class Renderer: NSObject, MTKViewDelegate {
             let screenY = (ndcPos.y + 1) * Float(viewSize.height) / 2
             let screenY_flipped = (1 - ndcPos.y) * Float(viewSize.height) / 2
             
-            
-             let projected_point = CGPoint(x: CGFloat(screenX), y: CGFloat(screenY_flipped))  // Use flipped if matches screen y=0 bottom
-             let mouse_dist = hypot(Float(location.x - projected_point.x), Float(location.y - projected_point.y))
-             print("   📏 Pixel dist mouse to projected center: \(mouse_dist) (small ~ hover if radius projects to ~50px)")
-            
             print("🌐 Frustum \(index): world=\(sphere.center), radius=\(sphere.radius)")
             print("   📺 Should appear at screen: (\(screenX), \(screenY)) or flipped: (\(screenX), \(screenY_flipped))")
             print("   🖱️ Mouse is at: (\(location.x), \(location.y))")
@@ -621,18 +910,6 @@ class Renderer: NSObject, MTKViewDelegate {
                 let distance = length(toCenter)
                 print("❌ Miss frustum \(index), distance to center: \(distance)")
             }
-            
-            
-             var min_distance_to_center: Float = .infinity
-             var closest_frustum_index: Int = -1
-             for (index, frustum) in cameraFrustums.enumerated() {
-                 let dist = length(frustum.boundingSphere.center - ray.origin)
-                 if dist < min_distance_to_center {
-                     min_distance_to_center = dist
-                     closest_frustum_index = index
-                 }
-             }
-             print("📏 Closest sphere (even if miss): index \(closest_frustum_index), dist \(min_distance_to_center)")
         }
         
         print("📊 Ray intersected \(hitCount) frustums, closest index: \(hoveredFrustumIndex ?? -1)")
@@ -648,29 +925,20 @@ class Renderer: NSObject, MTKViewDelegate {
             print("❌ No longer hovering any frustum (was \(previousHoveredIndex!))")
         }
     }
-
+    
     func handleClick(at location: CGPoint, viewSize: CGSize) {
-        // If already hovering a frustum, directly fly to it (faster, no ray cast needed)
-        if let hoveredIndex = hoveredFrustumIndex {
-            print("🎯 Click on hovered frustum \(hoveredIndex) - starting direct zoom")
-            flyToFrustum(at: hoveredIndex)
-            return
-        }
-        
-        // Fallback: Full ray cast if no hover (e.g., click without prior mouse move)
-        print("🖱️ No hover - performing full ray cast for click")
-        
         let aspect = Float(viewSize.width / viewSize.height)
         let projMatrix = camera.projectionMatrix(aspect: aspect)
         let viewMatrix = camera.viewMatrix()
         
         let ndcX = (2 * Float(location.x) / Float(viewSize.width)) - 1
         let ndcY = (2 * Float(location.y) / Float(viewSize.height)) - 1
+        let ndcY_flipped = 1 - (2 * Float(location.y) / Float(viewSize.height))
         
-        let clipCoords = SIMD4<Float>(ndcX, ndcY, -1, 1)
+        let clipCoords = SIMD4<Float>(ndcX, ndcY_flipped, -1, 1)
         let invProjMatrix = projMatrix.inverse
         var eyeCoords = invProjMatrix * clipCoords
-        eyeCoords.z = 1  // Forward direction
+        eyeCoords.z = -1
         eyeCoords.w = 0
         
         let invViewMatrix = viewMatrix.inverse
@@ -698,8 +966,20 @@ class Renderer: NSObject, MTKViewDelegate {
             if let frustumIndex = cameraFrustums.firstIndex(where: { $0.position == frustum.position }) {
                 viewportFrustumIndex = frustumIndex
                 print("🎯 Setting frustum \(frustumIndex) as viewport frustum (will be hidden)")
-                flyToFrustum(at: frustumIndex)  // Use existing fly method
             }
+            
+            // Calculate camera position to frame the frustum corners in viewport
+            let newCameraTarget = calculateFrustumFramingPosition(frustum: frustum, viewportSize: viewSize)
+            
+            // Start smooth fly-to animation
+            flyToStartPosition = camera.position
+            flyToTargetPosition = newCameraTarget.position
+            flyToStartTarget = camera.target
+            flyToTargetTarget = newCameraTarget.target
+            flyToProgress = 0
+            isFlyingTo = true
+            
+            print("Starting fly-to animation: \(camera.position) → \(newCameraTarget.position), target: \(camera.target) → \(newCameraTarget.target)")
         }
     }
     
@@ -782,27 +1062,19 @@ class Renderer: NSObject, MTKViewDelegate {
     }
     
     func intersectRaySphere(ray: Ray, sphere: BoundingSphere) -> Float? {
-        print("🔍 Debug for sphere center=\(sphere.center), radius=\(sphere.radius)")
         let oc = ray.origin - sphere.center
-        
-        let to_center_dir = normalize(sphere.center - ray.origin)
-        let cos_angle = dot(ray.direction, to_center_dir)
-        print("   cos_angle to center: \(cos_angle) (positive means pointing toward sphere, likely hit possible)")
-        print("   oc=\(oc), length(oc)=\(length(oc))")
         let a = dot(ray.direction, ray.direction)
         let b = 2.0 * dot(oc, ray.direction)
         let c = dot(oc, oc) - sphere.radius * sphere.radius
         let discriminant = b * b - 4 * a * c
-        print("   a=\(a), b=\(b), c=\(c), discriminant=\(discriminant)")
+        
         if discriminant < 0 {
-            print("   ❌ Miss: negative discriminant (ray pointing away or too far?)")
             return nil
         }
         
         let sqrtDiscriminant = sqrt(discriminant)
         let t1 = (-b - sqrtDiscriminant) / (2 * a)
         let t2 = (-b + sqrtDiscriminant) / (2 * a)
-        print("   t1=\(t1), t2=\(t2)")
         
         if t1 > 0 {
             return t1
@@ -810,10 +1082,9 @@ class Renderer: NSObject, MTKViewDelegate {
             return t2
         }
         
-        print("   ❌ Miss: negative t values (intersection behind ray origin)")
         return nil
-        
     }
+    
     // MARK: - Navigation Methods
     
     func navigateToNextFrustum() {
@@ -941,3 +1212,4 @@ func clamp(_ value: Float, min: Float, max: Float) -> Float {
 func mix(_ a: SIMD3<Float>, _ b: SIMD3<Float>, t: Float) -> SIMD3<Float> {
     return a * (1 - t) + b * t
 }
+

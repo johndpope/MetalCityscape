@@ -70,7 +70,7 @@ fragment float4 coloredWireframeFragmentShader(VertexOut in [[stage_in]],
     float intensity = 0.7 + 0.3 * pulse;
     
     // Make wireframes semi-transparent (0.5 alpha)
-    return float4(uniforms.color.rgb * fade * intensity, 0.5);
+    return float4(uniforms.color.rgb * fade * intensity, 1);
 }
 
 vertex VertexOut textureVertexShader(VertexIn in [[stage_in]],

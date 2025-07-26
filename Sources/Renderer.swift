@@ -100,6 +100,12 @@ class Renderer: NSObject, MTKViewDelegate {
     var time: Float = 0
     var currentViewportSize: CGSize = .zero
     
+    // Mouse drag controls
+    var isDragging = false
+    var dragStartPosition: CGPoint = .zero
+    var cameraStartPosition: SIMD3<Float> = [0, 0, 0]
+    var cameraStartTarget: SIMD3<Float> = [0, 0, 0]
+    
     init?(metalKitView: MTKView) {
         guard let device = MTLCreateSystemDefaultDevice() else { 
             print("❌ Failed to create Metal device")
@@ -318,6 +324,15 @@ class Renderer: NSObject, MTKViewDelegate {
         ]
         
         let texturePath = "/Users/johndpope/Documents/GitHub/Game/96-uploads_files_2720101_textures-2/textures"
+        
+        // Load a city texture first
+        let cityTexturePath = "\(texturePath)/Building_texture10.jpg"
+        if FileManager.default.fileExists(atPath: cityTexturePath) {
+            if let texture = try? textureLoader.newTexture(URL: URL(fileURLWithPath: cityTexturePath), options: textureOptions) {
+                cityTexture = texture
+                print("✅ Loaded city texture: Building_texture10.jpg")
+            }
+        }
         let photoFiles = [
             "download (1).jpg", "download (2).jpg", "download (3).jpg", "download (4).jpg",
             "download (5).jpg", "download (6).jpg", "download (7).jpg", "download (8).jpg",
@@ -359,13 +374,18 @@ class Renderer: NSObject, MTKViewDelegate {
         let viewMatrix = camera.viewMatrix()
         let projectionMatrix = camera.projectionMatrix(aspect: aspect)
         
-        // Render city model with wireframe
+        // Render city model with textures
         if let cityMesh = cityMesh {
-            renderEncoder.setRenderPipelineState(wireframePipelineState)
+            renderEncoder.setRenderPipelineState(texturePipelineState)
             
-            let modelMatrix = matrix4x4_scale(0.1, 0.1, 0.1) // Scale down the city model
+            let modelMatrix = matrix4x4_scale(0.5, 0.5, 0.5) // Scale to half size
             var uniforms = Uniforms(modelMatrix: modelMatrix, viewMatrix: viewMatrix, projectionMatrix: projectionMatrix)
             renderEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 1)
+            
+            // Set a default city texture or color
+            if let cityTexture = cityTexture {
+                renderEncoder.setFragmentTexture(cityTexture, index: 0)
+            }
             
             for vertexBuffer in cityMesh.vertexBuffers {
                 renderEncoder.setVertexBuffer(vertexBuffer.buffer, offset: vertexBuffer.offset, index: 0)
@@ -373,7 +393,7 @@ class Renderer: NSObject, MTKViewDelegate {
             
             for submesh in cityMesh.submeshes {
                 renderEncoder.drawIndexedPrimitives(
-                    type: .line,
+                    type: .triangle,  // Use triangles for solid rendering
                     indexCount: submesh.indexCount,
                     indexType: submesh.indexType,
                     indexBuffer: submesh.indexBuffer.buffer,
@@ -795,6 +815,39 @@ class Renderer: NSObject, MTKViewDelegate {
             print("🎯 Frustum \(i): pos=\(frustum.position), size=\(frustum.size), hovered=\(frustum.isHovered)")
         }
         print("🔍 === END DEBUG INFO ===")
+    }
+    
+    func handleMouseDown(at location: CGPoint) {
+        isDragging = true
+        dragStartPosition = location
+        cameraStartPosition = camera.position
+        cameraStartTarget = camera.target
+    }
+    
+    func handleMouseDragged(at location: CGPoint) {
+        guard isDragging else { return }
+        
+        let deltaX = Float(location.x - dragStartPosition.x) * 0.01
+        let deltaY = Float(location.y - dragStartPosition.y) * 0.01
+        
+        // Calculate rotation around Y axis (horizontal drag)
+        let angleY = deltaX
+        let rotationY = matrix4x4_rotation(radians: angleY, axis: [0, 1, 0])
+        
+        // Calculate new camera position by rotating around target
+        let offset = cameraStartPosition - cameraStartTarget
+        let rotatedOffset4 = rotationY * SIMD4<Float>(offset.x, offset.y, offset.z, 0)
+        let rotatedOffset = SIMD3<Float>(rotatedOffset4.x, rotatedOffset4.y, rotatedOffset4.z)
+        
+        camera.position = cameraStartTarget + rotatedOffset
+        
+        // Adjust camera height based on vertical drag
+        camera.position.y = cameraStartPosition.y - deltaY * 5.0
+        camera.position.y = max(1.0, camera.position.y) // Keep camera above ground
+    }
+    
+    func handleMouseUp() {
+        isDragging = false
     }
     
     func takeScreenshot() {

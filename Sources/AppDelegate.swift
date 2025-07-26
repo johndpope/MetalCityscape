@@ -9,7 +9,24 @@ class ClickableMetalView: MTKView {
         let location = convert(event.locationInWindow, from: nil)
         let viewSize = bounds.size
         print("🖱️ ClickableMetalView mouseDown: \(location) in \(viewSize)")
-        renderer?.handleClick(at: location, viewSize: viewSize)
+        
+        // Check if shift key is held for camera control
+        if event.modifierFlags.contains(.shift) {
+            renderer?.handleMouseDown(at: location)
+        } else {
+            renderer?.handleClick(at: location, viewSize: viewSize)
+        }
+    }
+    
+    override func mouseDragged(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        print("🎯 ClickableMetalView mouseDragged: \(location)")
+        renderer?.handleMouseDragged(at: location)
+    }
+    
+    override func mouseUp(with event: NSEvent) {
+        print("🖱️ ClickableMetalView mouseUp")
+        renderer?.handleMouseUp()
     }
     
     override func mouseMoved(with event: NSEvent) {

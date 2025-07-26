@@ -39,6 +39,7 @@ class ViewController: NSViewController {
     override func mouseMoved(with event: NSEvent) {
         let location = view.convert(event.locationInWindow, from: nil)
         let viewSize = view.bounds.size
+        print("🎯 ViewController mouseMoved called: \(location) in \(viewSize)")
         renderer.handleMouseMove(at: location, viewSize: viewSize)
     }
     

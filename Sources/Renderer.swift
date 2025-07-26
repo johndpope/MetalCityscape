@@ -213,7 +213,7 @@ class Renderer: NSObject, MTKViewDelegate {
         createPhotoBorderGeometry()
         
         // Create 15 camera frustums with random positions
-        for _ in 0..<15 {
+        for i in 0..<15 {
             let x = Float.random(in: -20...20)
             let z = Float.random(in: -20...20)
             let y = Float.random(in: 2...8)
@@ -229,6 +229,7 @@ class Renderer: NSObject, MTKViewDelegate {
                 boundingSphere: BoundingSphere(center: [x, y, z], radius: 2.0)
             )
             cameraFrustums.append(frustum)
+            print("📦 Created frustum \(i): position=\(frustum.position), radius=\(frustum.boundingSphere.radius)")
         }
     }
     
@@ -355,7 +356,12 @@ class Renderer: NSObject, MTKViewDelegate {
         // Render photo borders with hover highlighting
         renderEncoder.setVertexBuffer(photoBorderVertexBuffer, offset: 0, index: 0)
         
-        for frustum in cameraFrustums {
+        let hoveredCount = cameraFrustums.filter { $0.isHovered }.count
+        if hoveredCount > 0 {
+            print("🔥 Rendering \(hoveredCount) hovered frustums")
+        }
+        
+        for (index, frustum) in cameraFrustums.enumerated() {
             let rotationMatrix = matrix4x4_rotation(radians: frustum.rotation.y, axis: [0, 1, 0]) *
                                  matrix4x4_rotation(radians: frustum.rotation.x, axis: [1, 0, 0]) *
                                  matrix4x4_rotation(radians: frustum.rotation.z, axis: [0, 0, 1])
@@ -366,6 +372,7 @@ class Renderer: NSObject, MTKViewDelegate {
             
             if frustum.isHovered {
                 // Use colored wireframe shader for hovered frustum with bright orange/yellow color
+                print("🟠 Rendering hovered frustum \(index) with orange color")
                 renderEncoder.setRenderPipelineState(coloredWireframePipelineState)
                 var coloredUniforms = UniformsWithColor(
                     modelMatrix: modelMatrix,
@@ -410,6 +417,7 @@ class Renderer: NSObject, MTKViewDelegate {
     
     func handleMouseMove(at location: CGPoint, viewSize: CGSize) {
         lastMousePosition = location
+        print("🖱️ Mouse moved to: \(location) in view size: \(viewSize)")
         
         let aspect = Float(viewSize.width / viewSize.height)
         let projMatrix = camera.projectionMatrix(aspect: aspect)
@@ -417,6 +425,8 @@ class Renderer: NSObject, MTKViewDelegate {
         
         let ndcX = (2 * Float(location.x) / Float(viewSize.width)) - 1
         let ndcY = 1 - (2 * Float(location.y) / Float(viewSize.height))
+        
+        print("📍 NDC coordinates: (\(ndcX), \(ndcY))")
         
         let clipCoords = SIMD4<Float>(ndcX, ndcY, -1, 1)
         let invProjMatrix = projMatrix.inverse
@@ -431,8 +441,10 @@ class Renderer: NSObject, MTKViewDelegate {
         let worldOrigin = SIMD3<Float>(worldOrigin4.x, worldOrigin4.y, worldOrigin4.z)
         
         let ray = Ray(origin: worldOrigin, direction: worldDir)
+        print("🔦 Ray: origin=\(worldOrigin), direction=\(worldDir)")
         
         // Clear previous hover state
+        let previousHoveredIndex = hoveredFrustumIndex
         for i in 0..<cameraFrustums.count {
             cameraFrustums[i].isHovered = false
         }
@@ -440,9 +452,12 @@ class Renderer: NSObject, MTKViewDelegate {
         
         // Find the closest intersected frustum for hover
         var closestDistance: Float = .infinity
+        var hitCount = 0
         
         for (index, frustum) in cameraFrustums.enumerated() {
             if let t = intersectRaySphere(ray: ray, sphere: frustum.boundingSphere) {
+                hitCount += 1
+                print("🎯 Hit frustum \(index) at distance \(t), position: \(frustum.position)")
                 if t < closestDistance {
                     closestDistance = t
                     hoveredFrustumIndex = index
@@ -450,9 +465,16 @@ class Renderer: NSObject, MTKViewDelegate {
             }
         }
         
+        print("📊 Ray intersected \(hitCount) frustums")
+        
         // Set hover state for the closest frustum
         if let hoveredIndex = hoveredFrustumIndex {
             cameraFrustums[hoveredIndex].isHovered = true
+            if hoveredIndex != previousHoveredIndex {
+                print("✨ Now hovering frustum \(hoveredIndex)")
+            }
+        } else if previousHoveredIndex != nil {
+            print("❌ No longer hovering any frustum")
         }
     }
     

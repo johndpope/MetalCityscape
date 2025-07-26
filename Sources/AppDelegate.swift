@@ -22,6 +22,48 @@ class ClickableMetalView: MTKView {
     override var acceptsFirstResponder: Bool {
         return true
     }
+    
+    override var canBecomeKeyView: Bool {
+        return true
+    }
+    
+    override func keyDown(with event: NSEvent) {
+        print("🎹 ClickableMetalView keyDown: keyCode=\(event.keyCode)")
+        
+        switch event.keyCode {
+        case 123: // Left arrow
+            renderer?.navigateToPreviousFrustum()
+        case 124: // Right arrow
+            renderer?.navigateToNextFrustum()
+        case 125: // Down arrow
+            renderer?.navigateToNextFrustum()
+        case 126: // Up arrow
+            renderer?.navigateToPreviousFrustum()
+        case 49: // Spacebar
+            renderer?.takeScreenshot()
+        case 50: // ` key - test click simulation
+            testClickSimulation()
+        case 18: // 1 key - test first frustum
+            testFrustumClick()
+        case 19: // 2 key - debug frustums
+            renderer?.debugListFrustums()
+        default:
+            super.keyDown(with: event)
+        }
+    }
+    
+    func testClickSimulation() {
+        print("🧪 Testing click simulation at center of screen")
+        let viewSize = bounds.size
+        let centerPoint = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        print("🎯 Simulating click at: \(centerPoint) in view size: \(viewSize)")
+        renderer?.handleClick(at: centerPoint, viewSize: viewSize)
+    }
+    
+    func testFrustumClick() {
+        print("🧪 Testing direct frustum navigation")
+        renderer?.flyToFrustum(at: 0) // Go to first frustum
+    }
 }
 
 @main
@@ -63,11 +105,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Enable mouse move tracking
         window.acceptsMouseMovedEvents = true
+        metalView.window?.acceptsMouseMovedEvents = true
+        
+        // Create a tracking area for the entire view to capture mouse moves
+        let trackingArea = NSTrackingArea(
+            rect: metalView.bounds,
+            options: [.activeInKeyWindow, .mouseMoved, .enabledDuringMouseDrag],
+            owner: metalView,
+            userInfo: nil
+        )
+        metalView.addTrackingArea(trackingArea)
         
         // Make the window key and order front
         window.makeKeyAndOrderFront(nil)
         
+        // Make the metal view the first responder to receive keyboard events
+        window.makeFirstResponder(metalView)
+        
         print("✅ Metal Cityscape window created and displayed")
+        print("📊 Window size: \(window.frame.size)")
+        print("📊 MetalView size: \(metalView.bounds.size)")
+        print("📊 Number of frustums: \(renderer.cameraFrustums.count)")
+        print("🎹 First responder: \(window.firstResponder)")
+        print("🎹 Metal view accepts first responder: \(metalView.acceptsFirstResponder)")
     }
     
     func applicationWillTerminate(_ aNotification: Notification) {

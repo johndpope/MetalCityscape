@@ -95,6 +95,7 @@ class Renderer: NSObject, MTKViewDelegate {
     
     var hoveredFrustumIndex: Int? = nil
     var currentFrustumIndex: Int = 0
+    var viewportFrustumIndex: Int? = nil // Index of frustum currently filling viewport (should be hidden)
     var lastMousePosition: CGPoint = .zero
     var time: Float = 0
     var currentViewportSize: CGSize = .zero
@@ -125,6 +126,9 @@ class Renderer: NSObject, MTKViewDelegate {
         loadTextures()
         
         print("✅ Renderer initialized with \(cameraFrustums.count) photo frustums")
+        print("🎯 First frustum at: \(cameraFrustums.first?.position ?? SIMD3<Float>(0,0,0))")
+        print("🎯 Camera position: \(camera.position)")
+        print("🎯 Camera target: \(camera.target)")
     }
     
     func setupPipelines() {
@@ -605,6 +609,12 @@ class Renderer: NSObject, MTKViewDelegate {
         }
         
         if let frustum = closestFrustum {
+            // Find the index of this frustum
+            if let frustumIndex = cameraFrustums.firstIndex(where: { $0.position == frustum.position }) {
+                viewportFrustumIndex = frustumIndex
+                print("🎯 Setting frustum \(frustumIndex) as viewport frustum (will be hidden)")
+            }
+            
             // Calculate camera position to frame the frustum corners in viewport
             let newCameraTarget = calculateFrustumFramingPosition(frustum: frustum, viewportSize: viewSize)
             
@@ -671,13 +681,17 @@ class Renderer: NSObject, MTKViewDelegate {
         let fov: Float = 45.0 * .pi / 180.0
         
         // Calculate required distances
-        // For horizontal: width should fill viewport width
-        let distanceForWidth = (frustumWidth / 2.0) / tan((fov * viewportAspect) / 2.0)
-        // For vertical: height should fill viewport height  
-        let distanceForHeight = (frustumHeight / 2.0) / tan(fov / 2.0)
+        // Vertical FOV is 45 degrees, calculate horizontal FOV from aspect ratio
+        let verticalFOV = fov
+        let horizontalFOV = 2.0 * atan(tan(verticalFOV / 2.0) * viewportAspect)
         
-        // Use the larger distance to ensure everything fits, with some padding
-        let requiredDistance = max(distanceForWidth, distanceForHeight) * 1.2 // 20% padding
+        // Distance to fit frustum width in horizontal viewport
+        let distanceForWidth = (frustumWidth / 2.0) / tan(horizontalFOV / 2.0)
+        // Distance to fit frustum height in vertical viewport  
+        let distanceForHeight = (frustumHeight / 2.0) / tan(verticalFOV / 2.0)
+        
+        // Use the larger distance to ensure everything fits exactly (no padding for perfect alignment)
+        let requiredDistance = max(distanceForWidth, distanceForHeight)
         
         // Position camera along the normal
         let cameraPosition = frustumCenter + normal * requiredDistance
@@ -733,6 +747,10 @@ class Renderer: NSObject, MTKViewDelegate {
     func flyToFrustum(at index: Int) {
         guard index >= 0 && index < cameraFrustums.count else { return }
         
+        // Set this frustum as the viewport frustum (to be hidden)
+        viewportFrustumIndex = index
+        print("🎯 Setting frustum \(index) as viewport frustum (will be hidden)")
+        
         let frustum = cameraFrustums[index]
         let newCameraTarget = calculateFrustumFramingPosition(frustum: frustum, viewportSize: currentViewportSize)
         
@@ -748,6 +766,19 @@ class Renderer: NSObject, MTKViewDelegate {
     }
     
     // MARK: - Screenshot Methods
+    
+    func debugListFrustums() {
+        print("🔍 === FRUSTUM DEBUG INFO ===")
+        print("📊 Total frustums: \(cameraFrustums.count)")
+        print("📊 Current viewport: \(currentViewportSize)")
+        print("📊 Camera position: \(camera.position)")
+        print("📊 Camera target: \(camera.target)")
+        
+        for (i, frustum) in cameraFrustums.enumerated() {
+            print("🎯 Frustum \(i): pos=\(frustum.position), size=\(frustum.size), hovered=\(frustum.isHovered)")
+        }
+        print("🔍 === END DEBUG INFO ===")
+    }
     
     func takeScreenshot() {
         print("📸 Taking screenshot...")

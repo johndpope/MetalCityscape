@@ -71,8 +71,27 @@ class ViewController: NSViewController {
             renderer?.navigateToPreviousFrustum()
         case 49: // Spacebar
             renderer?.takeScreenshot()
+        case 50: // ` key - test click simulation
+            testClickSimulation()
+        case 18: // 1 key - test first frustum
+            testFrustumClick()
+        case 19: // 2 key - debug frustums
+            renderer?.debugListFrustums()
         default:
             super.keyDown(with: event)
         }
+    }
+    
+    func testClickSimulation() {
+        print("🧪 Testing click simulation at center of screen")
+        let viewSize = view.bounds.size
+        let centerPoint = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        print("🎯 Simulating click at: \(centerPoint) in view size: \(viewSize)")
+        renderer?.handleClick(at: centerPoint, viewSize: viewSize)
+    }
+    
+    func testFrustumClick() {
+        print("🧪 Testing direct frustum navigation")
+        renderer?.flyToFrustum(at: 0) // Go to first frustum
     }
 }

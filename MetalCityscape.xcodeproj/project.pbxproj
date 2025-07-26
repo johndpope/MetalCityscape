@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2D8074EC4B7944408E128466 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 4E818BA52F80EAA6A50EDB93 /* Main.storyboard */; };
 		58AB59A24C26BC9F5C6835CB /* MatrixUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 583638560CE5883C29B59410 /* MatrixUtilities.swift */; };
 		8188C7E7593DCAC45BE24617 /* Renderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5F72BBD699E439042F2034B /* Renderer.swift */; };
 		85D1209D8AF2034AAE69AE5C /* Shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = A814ADCA263BA555B663A0B6 /* Shaders.metal */; };
@@ -17,6 +18,7 @@
 /* Begin PBXFileReference section */
 		26FC3F1885C86C7532853235 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
 		3FB4672D0410D113B4FE4A53 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		4E818BA52F80EAA6A50EDB93 /* Main.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = Main.storyboard; sourceTree = "<group>"; };
 		583638560CE5883C29B59410 /* MatrixUtilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixUtilities.swift; sourceTree = "<group>"; };
 		A814ADCA263BA555B663A0B6 /* Shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = Shaders.metal; sourceTree = "<group>"; };
 		B2E9D3BCC5903C328339688C /* MetalCityscape.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MetalCityscape.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -54,6 +56,7 @@
 		8FBBBFA13EC838B8C7C7636D = {
 			isa = PBXGroup;
 			children = (
+				4E818BA52F80EAA6A50EDB93 /* Main.storyboard */,
 				0E766A251D23FA3BE4B21278 /* Shaders */,
 				416F0DD90D273462C05DF719 /* Sources */,
 				490F03C719FF14C60903DD1B /* Products */,
@@ -68,6 +71,7 @@
 			buildConfigurationList = B702C015B31342F705E0853F /* Build configuration list for PBXNativeTarget "MetalCityscape" */;
 			buildPhases = (
 				C99312C897DD08C2D8F43F05 /* Sources */,
+				788B575B7873CA24882B64C0 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -112,6 +116,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		788B575B7873CA24882B64C0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2D8074EC4B7944408E128466 /* Main.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		C99312C897DD08C2D8F43F05 /* Sources */ = {

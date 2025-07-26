@@ -12,8 +12,10 @@ targets:
     sources:
       - Sources
       - Shaders
+      - Main.storyboard
     resources:
-      - Resources/uploads_files_2720101_BusGameMap.obj
+      - path: Resources/uploads_files_2720101_BusGameMap.obj
+        type: file
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.example.MetalCityscape
       SWIFT_VERSION: 5.0
